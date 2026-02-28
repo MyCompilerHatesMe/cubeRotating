@@ -2,6 +2,7 @@ import cv2 as cv
 import mediapipe as mp
 import numpy as np
 import pygame
+import math
 
 # pygame and cube set up
 pygame.init()
@@ -54,7 +55,7 @@ def getHandOrientation(handLandmarks):
     midMcp = handLandmarks[9]
     dx = midMcp.x - wrist.x
     dy = midMcp.y - wrist.y
-    return dy, dx  # rawX, rawY
+    return np.atan2(dy, dx) # changing this to just the angle
 
 def isHandOpen(handLandmarks):
     fingers = [
@@ -115,7 +116,7 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 
 capture = cv.VideoCapture(0)
 
-SENSITIVITY = 10
+SENSITIVITY = 1.5
 
 # X axis controlled by left hand
 angleX, baseAngleX, refX, wasOpenLeft = 0, 0, None, False
@@ -124,14 +125,20 @@ angleY, baseAngleY, refY, wasOpenRight = 0, 0, None, False
 
 # mother of all helper 
 def processHand(hand, handedness, angleX, baseAngleX, refX, wasOpen, angleY, baseAngleY, refY, wasOpenRight):
-    rawX, rawY = getHandOrientation(hand)
+    handAngle = getHandOrientation(hand)
     handOpen = isHandOpen(hand)
     
     if handedness == "Left":
         if handOpen:
             if not wasOpen:
-                refX = rawX
-            angleX = baseAngleX + (rawX - refX) * SENSITIVITY
+                refX = handAngle
+                
+            delta = handAngle - refX
+            # prevent snapping if angle wraps around
+            if delta > math.pi: delta -= 2 * math.pi
+            elif delta < -math.pi: delta += 2 * math.pi
+                
+            angleX = baseAngleX + delta * SENSITIVITY
         else:
             if wasOpen:
                 baseAngleX = angleX
@@ -141,8 +148,13 @@ def processHand(hand, handedness, angleX, baseAngleX, refX, wasOpen, angleY, bas
     elif handedness == "Right":
         if handOpen:
             if not wasOpenRight:
-                refY = rawY
-            angleY = baseAngleY + (rawY - refY) * -SENSITIVITY
+                refY = handAngle
+                
+            delta = handAngle - refY
+            if delta > math.pi: delta -= 2 * math.pi
+            elif delta < -math.pi: delta += 2 * math.pi
+                
+            angleY = baseAngleY + delta * -SENSITIVITY
         else:
             if wasOpenRight:
                 baseAngleY = angleY

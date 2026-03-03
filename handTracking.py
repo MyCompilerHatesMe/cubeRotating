@@ -3,6 +3,7 @@ import mediapipe as mp
 import numpy as np
 import pygame
 import math
+import time
 
 # pygame and cube set up
 pygame.init()
@@ -76,6 +77,12 @@ def isHandOpen(handLandmarks):
     return extended >= 3
 
 # mediapipe setup
+LatestResult = None
+
+def resultCallback(result, outputImage, timestamp_ms):
+    global LatestResult
+    LatestResult = result
+
 modelPath = "models/hand_landmarker.task"
 baseOptions = mp.tasks.BaseOptions(model_asset_path=modelPath)
 HandLandmarker = mp.tasks.vision.HandLandmarker
@@ -84,10 +91,11 @@ VisionRunningMode = mp.tasks.vision.RunningMode
 
 options = HandLandmarkerOptions(
     base_options=baseOptions,
-    running_mode=VisionRunningMode.VIDEO,
+    running_mode=VisionRunningMode.LIVE_STREAM,
     num_hands=2,
     min_hand_detection_confidence=0.7,
-    min_tracking_confidence=0.7
+    min_tracking_confidence=0.7,
+    result_callback=resultCallback
 )
 
 # STOLEN FROM GOOGLE IPYNB
@@ -164,9 +172,16 @@ def processHand(hand, handedness, angleX, baseAngleX, refX, wasOpen, angleY, bas
     return angleX, baseAngleX, refX, wasOpen, angleY, baseAngleY, refY, wasOpenRight
 
 with HandLandmarker.create_from_options(options) as landmarker:
+    global lastTimestamp_ms
+    lastTimestamp_ms = 0
     while True:
         clock.tick(60)
         screen.fill((0, 0, 0))
+
+        timestamp_ms = int(time.time() * 1000)
+        if timestamp_ms <= lastTimestamp_ms:
+            timestamp_ms = lastTimestamp_ms + 1
+        lastTimestamp_ms = timestamp_ms
 
         _, frame = capture.read()
         frame = cv.flip(frame, 1)
@@ -175,14 +190,13 @@ with HandLandmarker.create_from_options(options) as landmarker:
         frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
 
         mpImage = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
-        timestamp = int(capture.get(cv.CAP_PROP_POS_MSEC))
-        results = landmarker.detect_for_video(mpImage, timestamp)
+        landmarker.detect_async(mpImage, timestamp_ms)
 
         # handles the webcam feed and hands
-        if results.hand_landmarks:
-            frame = draw_landmarks_on_image(frame, results)
-            for idx, hand in enumerate(results.hand_landmarks):
-                handedness = results.handedness[idx][0].category_name
+        if LatestResult and LatestResult.hand_landmarks:
+            frame = draw_landmarks_on_image(frame, LatestResult)
+            for idx, hand in enumerate(LatestResult.hand_landmarks):
+                handedness = LatestResult.handedness[idx][0].category_name
                 angleX, baseAngleX, refX, wasOpenLeft, angleY, baseAngleY, refY, wasOpenRight = processHand(
                     hand, handedness,
                     angleX, baseAngleX, refX, wasOpenLeft,
